@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import seaborn as sn
+import sklearn,plotly,scipy
 from scipy.signal import savgol_filter
 from plotly.subplots import make_subplots
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
@@ -78,9 +79,12 @@ def preprocess_data(
     """
     all_data = []
     for k in [data]:
-        df = (np.array(k[k.columns[:-2]])[:, cut_range_from:])
+        if cut_range_from:
+            df = (np.array(k[k.columns[:-2]])[:, cut_range_from:])
+        else:
+            df = np.array(k[k.columns[:-2]])
         if Smooth:
-            df = savgol_filter(df, 9, 2)
+            df = savgol_filter(df, 11, 2)
         if Standartization:
             df = snv(df)
         if Baselin_corr:
@@ -146,20 +150,19 @@ def plot_2d_lda_space(model, X, y):
     """
     y_pred = model.predict(X)
     Xlda = model.transform((X))
-    dataaa = pd.DataFrame(Xlda, columns=['F1', 'F2'])
+    dataaa = pd.DataFrame(Xlda, columns=['LD1', 'LD2'])
     dataaa['classes'] = y_pred
     dataaa['col'] = list(y)
 
-    fig = px.scatter(dataaa, x='F1', y='F2', color=[x[:-16] for x in y[:, 1]],
+    fig = px.scatter(dataaa, x='LD1', y='LD2', color=[x[:-16] for x in y[:, 1]],
                      labels={
-                         "F1": "F1",
-                         "F2": "F2",
+                         "LD1": "LD1",
+                         "LD2": "LD2",
                          "color": ""
     })
 
     fig.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(255,255,255,255)',
         width=1200,
         height=900,
         legend=dict(
@@ -169,7 +172,7 @@ def plot_2d_lda_space(model, X, y):
             x=0.01),
         font=dict(
             size=25))
-
+    fig.update_traces(marker=dict(size=25))
     fig.update_xaxes(
         showline=True,
         linewidth=1,
@@ -182,8 +185,8 @@ def plot_2d_lda_space(model, X, y):
         mirror=True)
 
     fig.update_layout()
-    fig.show()
-
+#     fig.show()
+    return fig
 
 def train_model(X_train, y_train, model, show_cv_score=True):
     """
@@ -224,58 +227,19 @@ def select_weights(weis):
         'apf_serd_weights']
     low = 50
     high = 750
+    
+    y1 = savgol_filter([(feat_value / np.max(weis)) if ((feat_value > 0) & (feat_value > np.quantile(np.sort(weis[0, :]), 0.95))
+                     & (feat_num > low) & (feat_num < high)) else 0 for feat_num, feat_value in enumerate(weis[0, :])], 11, 3)
     y2 = savgol_filter([(feat_value / np.max(weis)) if ((feat_value > 0) & (feat_value > np.quantile(np.sort(weis[1, :]), 0.95))
                        & (feat_num > low) & (feat_num < high)) else 0 for feat_num, feat_value in enumerate(weis[1, :])], 11, 3)
-
-    y1 = savgol_filter([(feat_value / np.max(weis)) if ((feat_value > 0) & (feat_value > np.quantile(np.sort(weis[0, :]), 0.95))
-                                                        & (feat_num > low) & (feat_num < high)) else 0
-                        for feat_num, feat_value in enumerate(weis[0, :])], 11, 3)
-
     y3 = savgol_filter([(feat_value / np.max(weis)) if ((feat_value > 0) & (feat_value > np.quantile(np.sort(weis[2, :]), 0.95))
-                                                        & (feat_num > low) & (feat_num < high)) else 0
-                        for feat_num, feat_value in enumerate(weis[2, :])], 11, 3)
+           & (feat_num > low) & (feat_num < high)) else 0   for feat_num, feat_value in enumerate(weis[2, :])], 11, 3)
 
     y1 = [i if i > 0 else 0 for i in y1]
     y2 = [i if i > 0 else 0 for i in y2]
     y3 = [i if i > 0 else 0 for i in y3]
     return y1, y2, y3
 
-
-def get_accuracy_vs_num_features(data, weights, x_axis):
-    """
-    Obtaining accuracy for plotting
-    """
-    y1, y2, y3 = weights
-    features, plot_helper1, plot_helper2 = select_features_for_model(
-        y1, y2, y3, x_axis)
-    accs = []
-    sub_plots_imp = []
-    sub_plots = []
-    X_train1, X_test1, y_train1, y_test = train_test_split(
-        np.array(data)[:, :-2], np.array(data)[:, -2:], test_size=0.35)
-    for feature in range(3, len(features)):
-        X_train = X_train1[:, features[:feature]]
-        X_test = X_test1[:, features[:feature]]
-
-        if feature % 25 == 0:
-            sub_plots.append(np.array(x_axis[features[:feature]]))
-
-        if feature < len(plot_helper1) & feature % 25 == 0:
-            sub_plots_imp.append(np.array(y2)[features[:feature]])
-        if feature < len(plot_helper2) and feature > len(
-                plot_helper1) & feature % 25 == 0:
-            sub_plots_imp.append(np.array(y3)[features[:feature]])
-        if feature > len(plot_helper2) & feature % 25 == 0:
-            sub_plots_imp.append(np.array(y1)[features[:feature]])
-        X_train, y_train = add_noise(X_train, y_train1)
-        lda = LDA(n_components=2)
-        lda.fit((X_train), list(y_train[:, 0]))
-        y_pred = lda.predict(X_test)
-        temp = pd.DataFrame()
-        temp['classes'] = list(y_test[:, 0])
-        temp['lde'] = y_pred
-        accs.append(accuracy_score(temp.classes, temp.lde))
-    return accs, sub_plots, features
 
 
 def select_features_for_model(y1, y2, y3, x_axis):
@@ -314,12 +278,57 @@ def select_features_for_model(y1, y2, y3, x_axis):
     return features, arrr1, arrr2
 
 
+def get_accuracy_vs_num_features(data, weights, x_axis):
+    """
+    Obtaining accuracy for plotting
+    """
+    y1, y2, y3 = weights
+    features, plot_helper1, plot_helper2 = select_features_for_model(
+        y1, y2, y3, x_axis)
+    accs = []
+    sub_plots_imp = []
+    sub_plots = []
+    
+    for feature in range(3, len(features)):
+        
+        if feature % 25 == 0:
+                sub_plots.append(np.array(x_axis[features[:feature]]))
+
+        if feature < len(plot_helper1) & feature % 25 == 0:
+                sub_plots_imp.append(np.array(y2)[features[:feature]])
+        if feature < len(plot_helper2) and feature > len(
+                    plot_helper1) & feature % 25 == 0:
+                sub_plots_imp.append(np.array(y3)[features[:feature]])
+        if feature > len(plot_helper2) & feature % 25 == 0:
+                sub_plots_imp.append(np.array(y1)[features[:feature]])
+        cv_accs = []
+        for iter in range(20):
+            X_train1, X_test1, y_train1, y_test = train_test_split(
+                    np.array(data)[:, :-2], np.array(data)[:, -2:], test_size=0.35)
+            X_train = X_train1[:, features[:feature]]
+            X_test = X_test1[:, features[:feature]]
+
+            
+            X_train, y_train = add_noise(X_train, y_train1)
+            lda = LDA(n_components=2)
+            lda.fit((X_train), list(y_train[:, 0]))
+            y_pred = lda.predict(X_test)
+            temp = pd.DataFrame()
+            temp['classes'] = list(y_test[:, 0])
+            temp['lde'] = y_pred
+            cv_accs.append(accuracy_score(temp.classes, temp.lde))       
+        accs.append([np.mean(cv_accs), np.std(cv_accs)])
+#         accs.append()
+    return accs, sub_plots, features
+
+
 def plot_accs(x_axis, data, weights):
     """
     Plot accuracy vs number of features used
     """
     accs, sub_plots, features = get_accuracy_vs_num_features(
         data, weights, x_axis)
+    accs = np.array(accs)
     levels = [0, 0.7, 1.4]
     target_names = ['Lung ACE', 'Seminal fluid ACE', 'Heart ACE']
     fig = make_subplots(rows=3, cols=1, specs=[[{}], [{}], [{}]], subplot_titles=(
@@ -364,12 +373,41 @@ def plot_accs(x_axis, data, weights):
             x=np.arange(
                 3,
                 len(features)),
-            y=accs,
+            y=accs[:,0],
             marker=dict(
-                color='cyan'),
+                color='purple'),
             showlegend=False),
         row=3,
         col=1)
+    
+    fig.add_trace(
+      go.Scatter(x = np.arange(
+                3,
+                len(features)),
+        
+          y=accs[:,0]+2*(accs[:,1]),
+          mode='lines',
+          line=dict(width=0),line_color='darkturquoise', showlegend=False
+      ),
+        row=3,
+        col=1)
+      
+    fig.add_trace(go.Scatter(
+          name='2σ',x =np.arange(
+                3,
+                len(features)),
+      
+          y=accs[:,0]-2*(accs[:,1]),
+          line=dict(width=0),
+          mode='lines',
+          fill='tonexty',line_color='darkturquoise',
+#           showlegend=False 
+        ),
+        row=3,
+        col=1
+      )
+
+    
     ylevl = 2
     fig.update_layout(showlegend=True, legend=dict(
         orientation="h",
@@ -378,8 +416,7 @@ def plot_accs(x_axis, data, weights):
         x=0.5
     ), font=dict(
         size=20
-    ),
-        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+    ), plot_bgcolor='rgba(255,255,255,255)')
     fig.add_annotation(x=444, y=ylevl,
                        text="<b>I<b>",
                        showarrow=False, row=1, col=1)
@@ -454,7 +491,8 @@ def plot_accs(x_axis, data, weights):
         linewidth=1,
         linecolor='black',
         mirror=True)
-    fig.show()
+#     fig.show()
+    return fig
 
 
 def save_weights(y1, y2, y3):
@@ -465,6 +503,8 @@ def save_weights(y1, y2, y3):
     np.save('y2', y2)
     np.save('y3', y3)
 
+import plotly.io as pio
+#save a figure of 300dpi, with 1.5 inches, and  height 0.75inches
 
 def plot_weights(y1, y2, y3, x_axis, data):
     """
@@ -474,10 +514,10 @@ def plot_weights(y1, y2, y3, x_axis, data):
     barncolorss = ['coral', 'cyan', 'cornflowerblue']
     all_levels = [0, 0.5, 1]
     barnames = [
-        'Lung ACE weights',
-        'Seminal fluid ACE weights',
-        'Heart ACE weights']
-    target_names = ['Lung ACE', 'Seminal fluid ACE', 'Heart ACE']
+        'ACE lung weights',
+        'ACE seminal fluid weights',
+        'ACE heart weights']
+    target_names = ['ACE lung', 'ACE seminal fluid', 'ACE heart']
 
     for i, y in enumerate([y1, y2, y3]):
 
@@ -489,7 +529,6 @@ def plot_weights(y1, y2, y3, x_axis, data):
                                  marker=dict(color=colorss[i]),
                                  mode='lines',
                                  name=target_names[i]))
-
     fig.update_layout(
         width=2000,
         height=1500,
@@ -500,8 +539,7 @@ def plot_weights(y1, y2, y3, x_axis, data):
             x=0.01),
         font=dict(
             size=40),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)')
+        plot_bgcolor='rgba(255,255,255,255)')
     fig.update_yaxes(
         title='<b>I<b>',
         title_font=dict(
@@ -521,8 +559,9 @@ def plot_weights(y1, y2, y3, x_axis, data):
         linewidth=1,
         linecolor='black',
         mirror=True)
-    fig.show()
-
+#     fig.show()
+    return fig
+#     pio.write_image(fig, "weights.JPEG", width=1.5*300, height=0.75*300 ,scale=1)
 
 def plot_intervals(x_axis, weights, data):
     """
@@ -641,6 +680,6 @@ def plot_intervals(x_axis, weights, data):
             x=0.5),
         font=dict(
             size=20),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)')
-    fig.show()
+        plot_bgcolor='rgba(255,255,255,255)')
+#     fig.show()
+    return fig
